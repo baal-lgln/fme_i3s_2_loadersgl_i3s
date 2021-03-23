@@ -18,11 +18,11 @@ def main(argv):
    try:
       opts, args = getopt.getopt(argv,"hi:o:",["ifile=","ofile="])
    except getopt.GetoptError:
-      print ('fme_i3s_2_loadersgl_i3s-server.py -i <slpk file>')
+      print ('fme_i3s_2_loadersgl_i3s.py -i <slpk file>')
       sys.exit(2)
    for opt, arg in opts:
       if opt == '-help':
-         print ('fme_i3s_2_loadersgl_i3s-server.py -i <slpk file>')
+         print ('fme_i3s_2_loadersgl_i3s.py -i <slpk file>')
          sys.exit()
       elif opt in ("-i", "--ifile"):
          inputfile = arg
