@@ -40,14 +40,14 @@ def main(argv):
    # create new folder structure
    createSceneServerDirectory(directoryname)
    end = time.time()
-   logging.info("Finished conversion in " + str(end - start) + " seconds.")
+   logging.info("Finished conversion in " + str(int(end - start)) + " seconds.")
 
 def createSceneServerDirectory(directoryname):
    dirname = os.path.dirname(directoryname)
-   print(dirname)
    basename = os.path.basename(directoryname)
-   print(basename)
    newPath = os.path.join(dirname, basename + "_converted", "SceneServer" , "layers", "0")
+   if os.path.exists(newPath):
+      shutil.rmtree(newPath)
    os.makedirs(newPath)
    file_names = os.listdir(directoryname)
    for f in file_names:
@@ -77,15 +77,13 @@ def convertToIndex(dirName):
    absPath = os.path.abspath(dirName)
    for dirpath, dirs, files in os.walk(os.path.join(absPath)):
       for f in files:
-         if fnmatch.fnmatch(f, '*.json.gz'):
+         if fnmatch.fnmatch(f, '*.gz'):
             if fnmatch.fnmatch(f, '3dNodeIndexDocument.json.gz'):
                process3dNodeIndexDocumentFile(os.path.join(dirpath, f))
             else:
-               processJsonFile(dirpath, f)
-         if fnmatch.fnmatch(f, '*.bin.gz'):
-            processBinFile(dirpath, f)
+               processFile(dirpath, f)
 
-def processJsonFile(filePath, fileName):
+def processFile(filePath, fileName):
    with gzip.open(os.path.join(filePath, fileName), 'rb') as f_in:
       # remove the .bin.gz extension
       baseName = fileName.split('.')[0]
@@ -93,22 +91,9 @@ def processJsonFile(filePath, fileName):
       newFilePath = os.path.join(filePath, baseName)
       if not os.path.exists(newFilePath):
          os.makedirs(newFilePath)
-      # save unzipped file as index.json in new directory
-      newFileName = os.path.join(newFilePath, "index.json")
-      with open(newFileName, 'wb') as f_out:
-         shutil.copyfileobj(f_in, f_out)
-   os.remove(os.path.join(filePath, fileName))
-
-def processBinFile(filePath, fileName):
-   with gzip.open(os.path.join(filePath, fileName), 'rb') as f_in:
-      # remove the .bin.gz extension
-      baseName = fileName.split('.')[0]
-      # make a new directory from file name
-      newFilePath = os.path.join(filePath, baseName)
-      if not os.path.exists(newFilePath):
-         os.makedirs(newFilePath)
-      # save unzipped file as index.json in new directory
-      newFileName = os.path.join(newFilePath, "index.bin")
+      # save unzipped file as index file in new directory
+      fileExt = fileName.split('.')[1]
+      newFileName = os.path.join(newFilePath, "index." + fileExt)
       with open(newFileName, 'wb') as f_out:
          shutil.copyfileobj(f_in, f_out)
    os.remove(os.path.join(filePath, fileName))
