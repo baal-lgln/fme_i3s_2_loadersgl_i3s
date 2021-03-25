@@ -7,6 +7,9 @@ import getopt
 import gzip
 import shutil
 import logging
+import subprocess
+import multiprocessing
+from multiprocessing.pool import ThreadPool
 
 def main(argv):
    logging.basicConfig(
@@ -15,43 +18,57 @@ def main(argv):
       datefmt='%Y-%m-%d %H:%M:%S')
 
    inputfile = ''
+   parallel = False
+   numberOfThreads = 0
    try:
-      opts, args = getopt.getopt(argv,"hi:o:",["ifile=","ofile="])
+      opts, args = getopt.getopt(argv,"hi:p:",["ifile=","parallel="])
    except getopt.GetoptError:
-      print ('fme_i3s_2_loadersgl_i3s.py -i <slpk file>')
+      print ('fme_i3s_2_loadersgl_i3s.py -i <slpk file> [optional: -p <number of threads>]')
       sys.exit(2)
    for opt, arg in opts:
       if opt == '-help':
-         print ('fme_i3s_2_loadersgl_i3s.py -i <slpk file>')
+         print ('fme_i3s_2_loadersgl_i3s.py -i <slpk file> [optional: -p <number of threads>]')
          sys.exit()
       elif opt in ("-i", "--ifile"):
          inputfile = arg
+      elif opt in ("-p", "--parallel"):
+         parallel = True
+         numberOfThreads = int(arg)
+
    logging.info("Starting conversion.")
    start = time.time()
    directoryname = checkInputFile(inputfile)
+   newDirectoryname = createSceneServerDirectory(directoryname)
    logging.info("Unzipping .slpk file.")
    unzipFile(inputfile, directoryname)
    logging.info("Finished unzipping .slpk file.")
-   logging.info("Scan directories.")
-   convertToIndex(directoryname)
-   logging.info("Scanning directories finished.")
-   # copy main 3dSceneLayer index.json to main folder
+   if parallel:
+      logging.info("Start parallel processing files with " + str(numberOfThreads) + " threads.")
+      parallelConvertToIndex(directoryname, numberOfThreads)
+      logging.info("Finished parallel processing files.")
+   else:
+      logging.info("Start processing files.")
+      convertToIndex(directoryname)
+      logging.info("Finished processing files.")
    copy3dNodeIndexDocumentFile(directoryname)
-   # create new folder structure
-   createSceneServerDirectory(directoryname)
+   moveProcessedFiles(directoryname, newDirectoryname)
    end = time.time()
    logging.info("Finished conversion in " + str(int(end - start)) + " seconds.")
 
 def createSceneServerDirectory(directoryname):
    dirname = os.path.dirname(directoryname)
    basename = os.path.basename(directoryname)
-   newPath = os.path.join(dirname, basename + "_converted", "SceneServer" , "layers", "0")
-   if os.path.exists(newPath):
-      shutil.rmtree(newPath)
-   os.makedirs(newPath)
+   newDirectoryname = os.path.join(dirname, basename + "_converted", "SceneServer" , "layers", "0")
+   if os.path.exists(newDirectoryname):
+      logging.info("Targetpath " + newDirectoryname + " already exists.")
+      sys.exit()
+   os.makedirs(newDirectoryname)
+   return newDirectoryname
+
+def moveProcessedFiles(directoryname, newDirectoryname):
    file_names = os.listdir(directoryname)
    for f in file_names:
-      shutil.move(os.path.join(directoryname, f), newPath)
+      shutil.move(os.path.join(directoryname, f), newDirectoryname)
    shutil.rmtree(directoryname)
 
 def copy3dNodeIndexDocumentFile(directoryname):
@@ -65,7 +82,7 @@ def checkInputFile(inputfile):
       fileName = os.path.splitext(inputfile)
       if fileName[1] == '.slpk':
          return fileName[0]
-   logging.debug("Inputfile is no .slpk file or valid path to .slpk file")
+   logging.info("Inputfile is no .slpk file or valid path to .slpk file")
    sys.exit(2)
 
 def unzipFile(inputfile, directoryname):
@@ -75,28 +92,38 @@ def unzipFile(inputfile, directoryname):
 
 def convertToIndex(dirName):
    absPath = os.path.abspath(dirName)
-   for dirpath, dirs, files in os.walk(os.path.join(absPath)):
-      for f in files:
-         if fnmatch.fnmatch(f, '*.gz'):
-            if fnmatch.fnmatch(f, '3dNodeIndexDocument.json.gz'):
-               process3dNodeIndexDocumentFile(os.path.join(dirpath, f))
-            else:
-               processFile(dirpath, f)
+   for dirpath, dirnames, filenames in os.walk(absPath):
+      for filename in filenames:
+         processFile(dirpath, filename)
+ 
 
-def processFile(filePath, fileName):
-   with gzip.open(os.path.join(filePath, fileName), 'rb') as f_in:
-      # remove the .bin.gz extension
-      baseName = fileName.split('.')[0]
-      # make a new directory from file name
-      newFilePath = os.path.join(filePath, baseName)
-      if not os.path.exists(newFilePath):
-         os.makedirs(newFilePath)
-      # save unzipped file as index file in new directory
-      fileExt = fileName.split('.')[1]
-      newFileName = os.path.join(newFilePath, "index." + fileExt)
-      with open(newFileName, 'wb') as f_out:
-         shutil.copyfileobj(f_in, f_out)
-   os.remove(os.path.join(filePath, fileName))
+def parallelConvertToIndex(dirName, numberOfThreads):
+   pool = ThreadPool(numberOfThreads)
+   filelist = []
+   absPath = os.path.abspath(dirName)
+   for dirpath, dirnames, filenames in os.walk(absPath):
+      for filename in filenames:
+         filelist.append((dirpath, filename))
+         pool.apply_async(processFile, args = (dirpath, filename, ), )
+   pool.close()
+   pool.join()
+
+def processFile(dirpath, filename):
+   filepath = os.path.join(dirpath, filename)
+   if fnmatch.fnmatch(filename, '*.gz'):
+      if fnmatch.fnmatch(filename, '3dNodeIndexDocument.json.gz'):
+         process3dNodeIndexDocumentFile(filepath)
+      else:
+         with gzip.open(filepath, 'rb') as f_in:
+            baseName = filename.split('.')[0]
+            newFilePath = os.path.join(dirpath, baseName)
+            if not os.path.exists(newFilePath):
+               os.makedirs(newFilePath)
+            fileExt = filename.split('.')[1]
+            newFilename = os.path.join(newFilePath, "index." + fileExt)
+            with open(newFilename, 'wb') as f_out:
+               shutil.copyfileobj(f_in, f_out)
+         os.remove(filepath)
 
 def process3dNodeIndexDocumentFile(filePath):
    with gzip.open(filePath, 'rb') as f_in:
